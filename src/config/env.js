@@ -22,3 +22,9 @@ export const fxFallbacks = (() => {
     return value;
   } catch { throw new Error("FX_FALLBACK_URLS must be a JSON array of {name, baseUrl} objects"); }
 })();
+export const fxFallbackProviders = [
+  { name: "theratesapi" },
+  { name: "ecb" },
+  { name: "fxapi" },
+  ...fxFallbacks,
+];
