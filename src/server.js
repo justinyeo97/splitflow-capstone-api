@@ -1,8 +1,4 @@
-import "dotenv/config";
 import app from "./app.js";
+import { env } from "./config/env.js";
 
-const port = Number(process.env.PORT) || 3000;
-
-app.listen(port, () => {
-  console.log(`Splitflow API running on port ${port}`);
-});
+app.listen(env.PORT, () => console.log(JSON.stringify({ level: "info", message: "Splitflow API listening", port: env.PORT, environment: env.NODE_ENV })));

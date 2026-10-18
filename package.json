@@ -2,12 +2,11 @@
   "name": "server",
   "version": "1.0.0",
   "description": "",
-  "main": "app.js",
+  "main": "src/server.js",
   "scripts": {
-    "dev": "nodemon app.js",
-    "build": "tsc",
-    "start": "node app.js",
-    "typecheck": "tsc --noEmit"
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",
