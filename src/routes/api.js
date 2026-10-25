@@ -1,3 +1,4 @@
+import { invitationsEnabled, restrictConsultant } from '../services/invitations.js';
 import { companyReportingEnabled } from '../services/company.js';
 import { salaryExpenses } from '../services/salary.js';
 import { autoConvertExpense, conversionContext } from '../services/automatic-conversion.js';
@@ -16,19 +17,19 @@ import { getHistoricalRate } from "../services/fx.js";
 import { multiplyAndRound } from "../utils/money.js";
 
 export const api = Router();
-const readRoles = ["administrator", "finance", "viewer"], writeRoles = ["administrator", "finance"];
+const readRoles = ["administrator", "finance", "viewer", "consultant"], writeRoles = ["administrator", "finance"];
 
 function requireAuthConfig() { if (!authClient) { const e = new Error("Authentication is not configured"); e.status = 503; throw e; } }
 api.post("/auth/signup", async (req, res) => {
   requireAuthConfig();
-  const { company_name, ...credentials } = validate(signupSchema, req.body);
-  const { data, error } = await authClient.auth.signUp({ ...credentials, options: { data: { company_name } } });
+  const { company_name, ...credentials } = validate(invitationsEnabled?signupSchema.partial({company_name:true}):signupSchema, req.body);
+  const { data, error } = await authClient.auth.signUp(invitationsEnabled?credentials:{ ...credentials, options: { data: { company_name } } });
   fail(error);
   res.status(201).json({ data: { user: data.user, session: data.session, confirmation_required: !data.session } });
 });
 api.post("/auth/login", async (req, res) => {
   requireAuthConfig();
-  const body = validate(authCredentials, req.body);
+  const body = validate(invitationsEnabled?authCredentials.extend({email:z.string().trim().max(254).regex(/^[^\s@]+@[^\s@]+$/)}):authCredentials, req.body);
   const { data, error } = await authClient.auth.signInWithPassword(body);
   if (error) { const e = new Error("Email or password is incorrect"); e.status = 401; throw e; }
   res.json({ data: { user: data.user, session: data.session } });
@@ -45,10 +46,21 @@ api.get("/auth/google", async (req, res) => {
   if (error) { const e = new Error("Google sign-in is not enabled for this Supabase project"); e.status = 503; throw e; }
   res.json({ data: { url: data.url } });
 });
+api.get('/auth/config',(_req,res)=>res.json({data:{invitations_enabled:invitationsEnabled}}));
 api.use(authenticate);
+api.use(restrictConsultant);
+api.get('/auth/companies',async(req,res)=>{
+ if(!invitationsEnabled){const e=new Error('Invitations are not activated');e.status=409;throw e;}
+ const {data,error}=await req.db.rpc('available_companies');fail(error);res.json({data});
+});
+api.post('/auth/join-company',async(req,res)=>{
+ if(!invitationsEnabled){const e=new Error('Invitations are not activated');e.status=409;throw e;}
+ const body=validate(z.object({company_id:uuid}).strict(),req.body);
+ const {error}=await req.db.rpc('join_invited_company',{target_company:body.company_id});fail(error);res.json({data:{joined:true}});
+});
 api.get('/auth/profile', async(req,res)=>{
   const {data,error}=await req.db.from('profiles').select(companyReportingEnabled?'id,email,role,company_name,company_id':'id,email,role,company_name').eq('id',req.user.id).single();fail(error);
-  res.json({data:{...data,...(req.company?{role:req.user.role,company:req.company}: {})}});
+  res.json({data:{...data,...(invitationsEnabled?{role:req.user.role,consultant_id:req.user.consultant_id||null,consultant:req.consultant||null,invitations_enabled:true}:{}),...(req.company?{role:req.user.role,company:req.company}: {})}});
 });
 api.patch('/auth/profile', async(req,res)=>{
   const body=validate(companyProfileSchema,req.body);
@@ -70,15 +82,15 @@ const schemas = {
   consultant: consultantSchema,
   expense: z.object({ is_payroll:z.boolean().optional(), consultant_id: uuid, transaction_date: date, original_amount: z.string().regex(/^\d{1,14}(\.\d{1,8})?$/), original_currency: currency, category: z.string().min(1).max(100), vendor: z.string().max(200).optional(), source_identifier: z.string().trim().min(1).max(200).optional(), description: z.string().max(1000).optional() }),
 };
-function fail(error) { if (error) { const e = new Error(error.message); e.status = error.code === "23505" ? 409 : error.code === "23503" ? 400 : 500; throw e; } }
+function fail(error) { if (error) { const e = new Error(error.message); e.status = error.code === "23505" ? 409 : error.code === "23503" ? 400 : error.code === "42501" ? 403 : error.code === "PGRST116" ? 404 : 500; throw e; } }
 async function list(req, res, table, select = "*") { const p = validate(pageQuery, req.query); const { data, error, count } = await req.db.from(table).select(select, { count: "exact" }).range(p.offset, p.offset + p.limit - 1); fail(error); res.json({ data, pagination: { limit: p.limit, offset: p.offset, total: count } }); }
 api.get("/countries", allowRoles(...readRoles), (req, res) => list(req, res, "countries"));
 api.post("/countries", allowRoles("administrator"), async (req, res) => { const body = validate(schemas.country, req.body); const { data, error } = await req.db.from("countries").insert(body).select().single(); fail(error); res.status(201).json({ data }); });
 api.patch("/countries/:id", allowRoles("administrator"), async(req,res)=>{validate(uuid,req.params.id);const body=validate(schemas.country.partial(),req.body);const {data,error}=await req.db.from("countries").update(body).eq("id",req.params.id).select().single();fail(error);res.json({data});});
-api.get("/consultants", allowRoles(...readRoles), (req, res) => list(req, res, "consultants", 'id,external_id,name,country_id,country_effective_from,active,created_at,updated_at,job_title,annual_salary::text,salary_currency,salary_effective_from,'+(companyReportingEnabled?'employment_start_date,employment_end_date,':'')+'countries(name,iso_code)'));
+api.get("/consultants", allowRoles(...readRoles), (req, res) => req.user?.role==='consultant'?res.json({data:[req.consultant],pagination:{total:1,limit:100,offset:0}}):list(req, res, "consultants", (invitationsEnabled?'email,':'')+'id,external_id,name,country_id,country_effective_from,active,created_at,updated_at,job_title,annual_salary::text,salary_currency,salary_effective_from,'+(companyReportingEnabled?'employment_start_date,employment_end_date,':'')+'countries(name,iso_code)'));
 api.get("/consultants/:id/country-history", allowRoles(...readRoles), async(req,res)=>{validate(uuid,req.params.id);const {data,error}=await req.db.from("consultant_country_history").select("*,countries(name,iso_code)").eq("consultant_id",req.params.id).order("effective_from");fail(error);res.json({data});});
-api.post("/consultants", allowRoles(...writeRoles), async (req, res) => { const body = validate(schemas.consultant, req.body); const { data, error } = await req.db.from("consultants").insert(body).select().single(); fail(error); res.status(201).json({ data }); });
-api.patch("/consultants/:id", allowRoles(...writeRoles), async(req,res)=>{validate(uuid,req.params.id);const body=validate(schemas.consultant.partial(),req.body);if(body.country_id&&!body.country_effective_from){const e=new Error("country_effective_from is required when changing country_id");e.status=400;throw e;}const {data,error}=await req.db.from("consultants").update(body).eq("id",req.params.id).select().single();fail(error);res.json({data});});
+api.post("/consultants", allowRoles(...writeRoles), async (req, res) => { const body = validate(schemas.consultant, req.body); if(body.email!==undefined&&req.user?.role!=='administrator'){const e=new Error('Only administrators can invite consultants');e.status=403;throw e;} const { data, error } = await req.db.from("consultants").insert(body).select().single(); fail(error); res.status(201).json({ data }); });
+api.patch("/consultants/:id", allowRoles(...writeRoles), async(req,res)=>{validate(uuid,req.params.id);const body=validate(schemas.consultant.partial(),req.body);if(body.email!==undefined&&req.user?.role!=='administrator'){const e=new Error('Only administrators can invite consultants');e.status=403;throw e;}if(body.country_id&&!body.country_effective_from){const e=new Error("country_effective_from is required when changing country_id");e.status=400;throw e;}const {data,error}=await req.db.from("consultants").update(body).eq("id",req.params.id).select().single();fail(error);res.json({data});});
 api.get("/expenses", allowRoles(...readRoles), async (req, res) => { const p = validate(pageQuery.extend({ from: date.optional(), to: date.optional(), consultant_id: uuid.optional() }), req.query); let q = req.db.from("expenses").select("*,expense_conversions(*)", { count: "exact" }).order("transaction_date", { ascending: false }).range(p.offset, p.offset + p.limit - 1); if (p.from) q = q.gte("transaction_date", p.from); if (p.to) q = q.lte("transaction_date", p.to); if (p.consultant_id) q = q.eq("consultant_id", p.consultant_id); const { data, error, count } = await q; fail(error); res.json({ data, pagination: { limit: p.limit, offset: p.offset, total: count } }); });
 api.post("/expenses", allowRoles(...writeRoles), async (req, res) => { const body = validate(schemas.expense, req.body); const { data: attribution, error: lookupError } = await req.db.from("consultant_country_history").select("country_id").eq("consultant_id",body.consultant_id).lte("effective_from",body.transaction_date).or(`effective_to.is.null,effective_to.gte.${body.transaction_date}`).order("effective_from",{ascending:false}).limit(1).maybeSingle(); fail(lookupError); if(!attribution){const e=new Error("No consultant country assignment exists for the transaction date");e.status=422;throw e;} const { data, error } = await req.db.from("expenses").insert({ ...body, attributed_country_id: attribution.country_id, created_by: req.user.id }).select().single(); fail(error); const conversion=await autoConvertExpense(req.db,data,req.user.id); res.status(201).json({ data, conversion }); });
 api.get("/expenses/:id", allowRoles(...readRoles), async (req, res) => { validate(uuid, req.params.id); const { data, error } = await req.db.from("expenses").select("*,expense_conversions(*)").eq("id", req.params.id).single(); fail(error); res.json({ data }); });

@@ -1,3 +1,4 @@
+import { invitationsEnabled, consultantClient } from '../services/invitations.js';
 import { companyReportingEnabled, companyClient } from '../services/company.js';
 import { createClient } from "@supabase/supabase-js";
 import { authClient } from "../lib/supabase.js";
@@ -16,14 +17,23 @@ export async function authenticate(req, _res, next) {
     if (profileError) throw profileError;
     if (!profile?.active) { const e = new Error("User profile is inactive or not provisioned"); e.status = 403; throw e; }
     req.user = { id: data.user.id, role: profile.role };
+    if(invitationsEnabled&&!profile.company_id){req.user.role='unassigned';return next();}
     if (companyReportingEnabled) {
-      const {data:membership,error:me}=await req.db.from('company_memberships').select('role').eq('company_id',profile.company_id).eq('user_id',data.user.id).maybeSingle();
+      const {data:membership,error:me}=await req.db.from('company_memberships').select(invitationsEnabled?'role,consultant_id':'role').eq('company_id',profile.company_id).eq('user_id',data.user.id).maybeSingle();
       if(me) throw me;
+      if(invitationsEnabled&&!membership){req.user.role='unassigned';return next();}
       if(!membership){const e=new Error('Company membership is required');e.status=403;throw e;}
       const {data:company,error:ce}=await req.db.from('companies').select('id,name,home_currency,reporting_timezone').eq('id',profile.company_id).single();
       if(ce) throw ce;
       req.company=company;req.user={...req.user,role:membership.role,company_id:company.id};
       req.db=companyClient(req.db,company.id);
+      if(invitationsEnabled&&membership.consultant_id){
+        const {data:people,error:pe}=await req.db.rpc('my_consultant');if(pe)throw pe;
+        const person=people?.[0];
+        if(!person?.active){req.user.role='unassigned';req.company=undefined;return next();}
+        req.user={...req.user,role:'consultant',consultant_id:person.id};req.consultant=person;
+        req.db=consultantClient(req.db,person.id);
+      }
     }
     next();
   } catch (error) { next(error); }

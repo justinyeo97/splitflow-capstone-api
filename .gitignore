@@ -10,6 +10,21 @@
 credentials*.json
 service-account*.json
 secrets/
+*.ppk
+*.keystore
+*.jks
+.aws/
+.ssh/
+.npmrc
+.netrc
+_netrc
+.pgpass
+.pg_service.conf
+
+# Supabase local credentials, linkage metadata, and branch state
+supabase/.temp/
+supabase/.branches/
+supabase/.env*
 
 # Dependencies and generated files
 node_modules/

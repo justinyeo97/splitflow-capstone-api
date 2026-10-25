@@ -100,3 +100,7 @@ ROI supports group_by=country|consultant and period=month|quarter|year, with opt
 See docs/ARCHITECTURE.md and docs/database-proposals/company-salary-reporting.sql. Company reporting is disabled by default until the database migration is explicitly approved, applied and verified. Keep COMPANY_REPORTING_ENABLED=false on the existing database. After activation, membership roles and company RLS isolate records, salary history feeds ROI, and company home currency replaces fixed USD reporting. The architecture document supersedes older salary/tenant limitation notes above.
 
 Company reporting was activated locally after approval: migrations 20261025172908 and 20261025172936 are applied. Rollback-only tenant isolation and authenticated database checks passed. The local API uses COMPANY_REPORTING_ENABLED=true; new environments must migrate and verify before enabling. See the architecture document for verification scope.
+
+## Prepared consultant invitations
+
+See docs/CONSULTANT_ACCESS.md for verified-email company selection, consultant-only expense access, and rollout prerequisites. Keep CONSULTANT_INVITATIONS_ENABLED=false until the proposed database change is approved, applied, and verified. The frontend capability probe activates the new flow only when this setting is enabled on the deployed API.
