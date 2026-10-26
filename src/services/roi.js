@@ -16,6 +16,7 @@ function ratio(numerator, denominator, factor = 1n) {
 
 // All costs incurred in a country/month are allocated to that country's
 // recognized placement revenue in the same month. No per-placement allocation.
+// Compare money earned with operating expenses plus salary, in one reporting currency.
 export async function calculateRoi(expenses, placements, resolveRate = getHistoricalRate, { groupBy = 'country', period = 'month', currency = 'USD', salaryRows = [] } = {}) {
   const groups = new Map(), rates = new Map();
   const cachedRate = (from, to, date) => {
@@ -23,6 +24,7 @@ export async function calculateRoi(expenses, placements, resolveRate = getHistor
     if (!rates.has(key)) rates.set(key, resolveRate(from, to, date));
     return rates.get(key);
   };
+// Put each record into the chosen company, country or consultant and time period.
   function group(record, date, isExpense) {
     const countryId = isExpense ? record.attributed_country_id : record.country_id;
     const id = groupBy === 'company' ? 'company' : groupBy === 'consultant' ? record.consultant_id : countryId;
@@ -32,6 +34,7 @@ export async function calculateRoi(expenses, placements, resolveRate = getHistor
     if (!groups.has(key)) groups.set(key, {country_id:groupBy==='country'?countryId:null,country:groupBy==='country'?(name||'Unassigned'):null,consultant_id:groupBy==='consultant'?id:null,consultant:groupBy==='consultant'?(name||'Unassigned'):null,period:bucket,month:bucket,entity_id:id,company:groupBy==='company'?name:null,expenses:[],placements:[]});
     return groups.get(key);
   }
+// Add salary separately and skip marked payroll expenses so salary is not counted twice.
   for (const e of [...expenses.filter(e=>!e.is_payroll),...salaryRows]) group(e,e.transaction_date,true).expenses.push(e);
   for (const p of placements) group(p,p.revenue_recognition_date||p.placement_date,false).placements.push(p);
   const rows = [];
@@ -45,7 +48,9 @@ export async function calculateRoi(expenses, placements, resolveRate = getHistor
       id: p.id, original_amount: String(p.revenue_amount), original_currency: p.revenue_currency,
       transaction_date: p.revenue_recognition_date,
     })), cachedRate,currency);
+// Only show profit and ROI when the required money, rate and ownership details are available.
     const complete = cost.complete && revenue.complete && missingRevenue.length === 0 && Boolean(g.entity_id);
+// Profit is revenue minus costs. ROI is profit divided by costs, times 100.
     const costs = decimal(cost.total, 2), revenues = decimal(revenue.total, 2);
     rows.push({ country_id: g.country_id, country: g.country, consultant_id:g.consultant_id, consultant:g.consultant, period:g.period, month: g.month, company:g.company,currency,
       operating_costs:operating.total,salary_costs:salary.total,missing_salary_count:missingSalary,costs: cost.total, revenue: revenue.total, profit: complete ? formatMinor(revenues - costs) : null,
