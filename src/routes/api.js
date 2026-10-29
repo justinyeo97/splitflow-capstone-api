@@ -167,6 +167,20 @@ api.patch('/placements/:id', allowRoles(...writeRoles), async (req, res) => {
   const { data, error } = await req.db.from('placements').update(body).eq('id', req.params.id).select().single(); fail(error);
   res.json({ data });
 });
+// Database policies and companyClient keep deletion inside the signed-in company.
+for (const [resource, table] of [['expenses', 'expenses'], ['placements', 'placements']]) {
+  api.delete(`/${resource}/:id`, allowRoles(...writeRoles), async (req, res) => {
+    const id = validate(uuid, req.params.id);
+    const { data, error } = await req.db.from(table).delete().eq('id', id).select('id').maybeSingle();
+    fail(error);
+    if (!data) {
+      const missing = new Error(`${resource === 'expenses' ? 'Expense' : 'Placement'} not found`);
+      missing.status = 404;
+      throw missing;
+    }
+    res.status(204).end();
+  });
+}
 api.get('/reports/roi', allowRoles(...readRoles), async (req, res) => {
   const filters = validate(z.object({
     group_by: z.enum(['country', 'consultant', 'company']).default('country'), period: z.enum(['month', 'quarter', 'year']).default('month'),
