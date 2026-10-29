@@ -81,9 +81,9 @@ Successful conversions still finalize immediately and lock source amount/currenc
 
 ## Rollout and verification
 
-1. Review and approve [the database migration](database-proposals/company-salary-reporting.sql). It replaces broad policies and adds company ownership, membership, salary history and payroll classification.
+1. Review and approve [the database migration](database-proposals/company-setup.sql). It replaces broad policies and adds company ownership, membership, salary history and payroll classification.
 2. Apply it transactionally through the Supabase migration tool, then save the returned migration version in the companion API repository. Do not invent a version or partially apply the file.
-3. Run [the rollback-only isolation checks](database-proposals/verify-company-isolation.sql). They verify separate same-name signups, cross-company read denial, cross-company foreign-key rejection and blocked privilege escalation. Test records are rolled back.
+3. Run [the rollback-only isolation checks](database-proposals/test-company-access.sql). They verify separate same-name signups, cross-company read denial, cross-company foreign-key rejection and blocked privilege escalation. Test records are rolled back.
 4. Run Supabase security advisors and validate the new PostgREST relationships and authenticated read/write paths.
 5. Set `COMPANY_REPORTING_ENABLED=true` in the API environment and restart. Confirm Cohort13's data remains present, configure its home currency, and inspect salary/expense/revenue totals for a known month.
 6. Verify signup, Google company completion, consultant salary changes, imports, regional conversions, company settings and each report view in a signed-in browser session.

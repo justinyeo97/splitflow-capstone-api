@@ -10,10 +10,10 @@ Splitflow manages consultants, expenses, placement revenue, currency conversions
 4. Read `GET /auth/profile` to check your role and company.
 5. Use the endpoint reference below. Invited users may need to join their company before accessing expenses.
 
-| Environment | Base URL |
-| --- | --- |
-| Local | `http://localhost:3000/api/v1` |
-| Railway | `https://splitflow-api-production.up.railway.app/api/v1` |
+| Environment | Base URL                                                 |
+| ----------- | -------------------------------------------------------- |
+| Local       | `http://localhost:3000/api/v1`                           |
+| Railway     | `https://splitflow-api-production.up.railway.app/api/v1` |
 
 All paths below are relative to the base URL. For example, `/expenses` locally means `http://localhost:3000/api/v1/expenses`. This reference describes the current source; deployments may run an earlier version or have different features enabled.
 
@@ -38,17 +38,17 @@ The database must already contain the required schema, triggers, functions, and 
 
 ### Configuration
 
-| Variable | Purpose |
-| --- | --- |
-| `PORT` | Listening port; default `3000`. |
-| `NODE_ENV` | `development`, `test`, or `production`. Production hides internal error messages. |
-| `SUPABASE_URL` | Supabase project's API URL. |
-| `SUPABASE_PUBLISHABLE_KEY` | Publishable key. Legacy `SUPABASE_ANON_KEY` is also accepted. |
-| `FRONTEND_URL` / `ALLOWED_ORIGINS` | Allowed browser origins. `ALLOWED_ORIGINS` is comma-separated; default `http://localhost:5173`. |
-| `COMPANY_REPORTING_ENABLED` | Enable only after company schema and isolation checks pass. Adds company scoping, membership roles, salary-inclusive ROI, and home-currency reporting. Default disabled. |
-| `CONSULTANT_INVITATIONS_ENABLED` | Enable only after invitation schema/access checks pass, with company reporting enabled. Adds invited-company onboarding and restricted consultant accounts. Default disabled. |
-| `FRANKFURTER_BASE_URL` | Primary historical rate service; default `https://api.frankfurter.dev/v1`. |
-| `FX_FALLBACK_URLS` | Additional providers as a JSON array of `{ "name", "baseUrl" }` objects implementing the Frankfurter v1 historical response shape. Default `[]`. |
+| Variable                           | Purpose                                                                                                                                                                       |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                             | Listening port; default `3000`.                                                                                                                                               |
+| `NODE_ENV`                         | `development`, `test`, or `production`. Production hides internal error messages.                                                                                             |
+| `SUPABASE_URL`                     | Supabase project's API URL.                                                                                                                                                   |
+| `SUPABASE_PUBLISHABLE_KEY`         | Publishable key. Legacy `SUPABASE_ANON_KEY` is also accepted.                                                                                                                 |
+| `FRONTEND_URL` / `ALLOWED_ORIGINS` | Allowed browser origins. `ALLOWED_ORIGINS` is comma-separated; default `http://localhost:5173`.                                                                               |
+| `COMPANY_REPORTING_ENABLED`        | Enable only after company schema and isolation checks pass. Adds company scoping, membership roles, salary-inclusive ROI, and home-currency reporting. Default disabled.      |
+| `CONSULTANT_INVITATIONS_ENABLED`   | Enable only after invitation schema/access checks pass, with company reporting enabled. Adds invited-company onboarding and restricted consultant accounts. Default disabled. |
+| `FRANKFURTER_BASE_URL`             | Primary historical rate service; default `https://api.frankfurter.dev/v1`.                                                                                                    |
+| `FX_FALLBACK_URLS`                 | Additional providers as a JSON array of `{ "name", "baseUrl" }` objects implementing the Frankfurter v1 historical response shape. Default `[]`.                              |
 
 ## API conventions and permissions
 
@@ -60,14 +60,14 @@ Authorization: Bearer <access_token>
 
 Use the Supabase **access token**, not the publishable key, as the bearer token. Refresh sessions through Supabase; this API has no refresh-token or logout endpoint.
 
-| Access label | Meaning |
-| --- | --- |
-| Public | No token required. |
-| Signed in | Active authenticated profile, including users completing company onboarding. |
-| Staff | `administrator`, `finance`, or `viewer`. |
-| Editors | `administrator` or `finance`. |
-| Administrator | `administrator` only. |
-| Consultant | Invited consultant with access limited to their own expenses and basic lookup data. |
+| Access label  | Meaning                                                                             |
+| ------------- | ----------------------------------------------------------------------------------- |
+| Public        | No token required.                                                                  |
+| Signed in     | Active authenticated profile, including users completing company onboarding.        |
+| Staff         | `administrator`, `finance`, or `viewer`.                                            |
+| Editors       | `administrator` or `finance`.                                                       |
+| Administrator | `administrator` only.                                                               |
+| Consultant    | Invited consultant with access limited to their own expenses and basic lookup data. |
 
 With company reporting enabled, staff access is limited to their company. Consultant accounts require invitation support. Unassigned users can access profile/company onboarding but cannot use business-data routes. Database row-level security also applies.
 
@@ -97,10 +97,10 @@ The consultant's own identity lookup is a special one-record response. Histories
 
 ## Health
 
-| Endpoint | Access | Result |
-| --- | --- | --- |
-| `GET /health` | Public | Process health: `200` with `{ "status": "ok" }`. |
-| `GET /ready` | Public | Database configuration/reachability: `200` if ready, `503` if unconfigured/unavailable. |
+| Endpoint      | Access | Result                                                                                  |
+| ------------- | ------ | --------------------------------------------------------------------------------------- |
+| `GET /health` | Public | Process health: `200` with `{ "status": "ok" }`.                                        |
+| `GET /ready`  | Public | Database configuration/reachability: `200` if ready, `503` if unconfigured/unavailable. |
 
 Readiness can return:
 
@@ -216,11 +216,11 @@ Returns `id`, `name`, `home_currency`, and `reporting_timezone`. Home-currency c
 
 Countries define the regional currency used for expense allocation.
 
-| Endpoint | Access | Purpose |
-| --- | --- | --- |
-| `GET /countries` | Staff; consultants have limited lookup access | Paginated country list; database policies restrict consultant visibility. |
-| `POST /countries` | Administrator | Create a country; returns the saved record (`201`). |
-| `PATCH /countries/:id` | Administrator | Update any subset of create fields; returns the updated record. |
+| Endpoint               | Access                                        | Purpose                                                                   |
+| ---------------------- | --------------------------------------------- | ------------------------------------------------------------------------- |
+| `GET /countries`       | Staff; consultants have limited lookup access | Paginated country list; database policies restrict consultant visibility. |
+| `POST /countries`      | Administrator                                 | Create a country; returns the saved record (`201`).                       |
+| `PATCH /countries/:id` | Administrator                                 | Update any subset of create fields; returns the updated record.           |
 
 Create body; all fields are required:
 
@@ -232,12 +232,12 @@ Create body; all fields are required:
 
 ## Consultants
 
-| Endpoint | Access | Purpose |
-| --- | --- | --- |
-| `GET /consultants` | Staff; consultant sees only own basic identity | Paginated directory with title, salary, and country; employment/email fields depend on enabled features. Consultant lookup excludes salary. |
-| `POST /consultants` | Editors; administrator required if `email` supplied | Create a consultant; returns the saved record (`201`). |
-| `PATCH /consultants/:id` | Editors; administrator required if `email` supplied | Update a subset of create fields; returns the updated record. |
-| `GET /consultants/:id/country-history` | Staff | Dated country assignments and country details, ordered by `effective_from`. No pagination. |
+| Endpoint                               | Access                                              | Purpose                                                                                                                                     |
+| -------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /consultants`                     | Staff; consultant sees only own basic identity      | Paginated directory with title, salary, and country; employment/email fields depend on enabled features. Consultant lookup excludes salary. |
+| `POST /consultants`                    | Editors; administrator required if `email` supplied | Create a consultant; returns the saved record (`201`).                                                                                      |
+| `PATCH /consultants/:id`               | Editors; administrator required if `email` supplied | Update a subset of create fields; returns the updated record.                                                                               |
+| `GET /consultants/:id/country-history` | Staff                                               | Dated country assignments and country details, ordered by `effective_from`. No pagination.                                                  |
 
 Create example:
 
@@ -267,13 +267,13 @@ An administrator can invite a consultant with `"email": "consultant@example.com"
 
 ## Expenses
 
-| Endpoint | Access | Purpose |
-| --- | --- | --- |
-| `GET /expenses` | Staff; consultants see only own expenses | Paginated list, newest transaction first, including nested `expense_conversions`. |
-| `GET /expenses/:id` | Staff; consultant can read only own expense | One expense with conversions. Unavailable/not-visible records can return `404`. |
-| `POST /expenses` | Editors | Save an expense and attempt regional conversion. Returns `201` with `data` and a separate `conversion` summary. |
-| `PATCH /expenses/:id` | Editors | Update a subset of create fields and attempt conversion. Returns `data` and `conversion`. |
-| `DELETE /expenses/:id` | Editors | Permanently delete an expense and its conversions, including finalized conversions. Returns `204` with no body; missing or inaccessible records return `404`. |
+| Endpoint               | Access                                      | Purpose                                                                                                                                                       |
+| ---------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /expenses`        | Staff; consultants see only own expenses    | Paginated list, newest transaction first, including nested `expense_conversions`.                                                                             |
+| `GET /expenses/:id`    | Staff; consultant can read only own expense | One expense with conversions. Unavailable/not-visible records can return `404`.                                                                               |
+| `POST /expenses`       | Editors                                     | Save an expense and attempt regional conversion. Returns `201` with `data` and a separate `conversion` summary.                                               |
+| `PATCH /expenses/:id`  | Editors                                     | Update a subset of create fields and attempt conversion. Returns `data` and `conversion`.                                                                     |
+| `DELETE /expenses/:id` | Editors                                     | Permanently delete an expense and its conversions, including finalized conversions. Returns `204` with no body; missing or inaccessible records return `404`. |
 
 Create example:
 
@@ -299,12 +299,12 @@ The API sets `attributed_country_id` from the consultant's assignment on the tra
 
 List filters can be combined:
 
-| Query | Meaning |
-| --- | --- |
-| `from=2026-10-01` | Transactions on or after this date. |
-| `to=2026-10-31` | Transactions on or before this date. |
+| Query                             | Meaning                                                                     |
+| --------------------------------- | --------------------------------------------------------------------------- |
+| `from=2026-10-01`                 | Transactions on or after this date.                                         |
+| `to=2026-10-31`                   | Transactions on or before this date.                                        |
 | `consultant_id=<consultant_uuid>` | Filter by consultant; cannot override the signed-in consultant's own scope. |
-| `limit=50&offset=0` | Pagination. |
+| `limit=50&offset=0`               | Pagination.                                                                 |
 
 Example: `/expenses?from=2026-10-01&to=2026-10-31&limit=50&offset=0`.
 
@@ -318,11 +318,11 @@ Mark actual payroll expense entries with `is_payroll: true` when salary history 
 
 ## Currency conversions
 
-| Endpoint | Access | Request and result |
-| --- | --- | --- |
+| Endpoint                         | Access  | Request and result                                                                                                                                            |
+| -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /expenses/:id/conversions` | Editors | Expense UUID; body `{ "target_currency": "USD" }`. Returns `201` with the finalized record or `202` with a pending record if no acceptable rate is available. |
-| `GET /conversions/exceptions` | Editors | List pending conversions with expense details/error metadata. No pagination parameters. |
-| `POST /conversions/:id/retry` | Editors | Use a **conversion UUID**, not an expense UUID. No body required. Returns `200` if finalized or `202` if still pending. |
+| `GET /conversions/exceptions`    | Editors | List pending conversions with expense details/error metadata. No pagination parameters.                                                                       |
+| `POST /conversions/:id/retry`    | Editors | Use a **conversion UUID**, not an expense UUID. No body required. Returns `200` if finalized or `202` if still pending.                                       |
 
 Finalized conversions cannot be overwritten/retried (`409`). Records include status, target currency, and available rate/provider/date/amount/finalization details.
 
@@ -379,11 +379,11 @@ Example `201` response:
 
 ## Placements and revenue
 
-| Endpoint | Access | Purpose |
-| --- | --- | --- |
-| `GET /placements` | Staff | Paginated list, including revenue amount as text, currency, and recognition date. |
-| `POST /placements` | Editors | Create a placement; returns the saved record (`201`). |
-| `PATCH /placements/:id` | Editors | Update using the **full required create body**, not a partial body; returns the updated record. |
+| Endpoint                 | Access  | Purpose                                                                                                                                                  |
+| ------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /placements`        | Staff   | Paginated list, including revenue amount as text, currency, and recognition date.                                                                        |
+| `POST /placements`       | Editors | Create a placement; returns the saved record (`201`).                                                                                                    |
+| `PATCH /placements/:id`  | Editors | Update using the **full required create body**, not a partial body; returns the updated record.                                                          |
 | `DELETE /placements/:id` | Editors | Permanently delete a placement and remove its revenue from subsequent reports. Returns `204` with no body; missing or inaccessible records return `404`. |
 
 Create/update example:
@@ -430,14 +430,14 @@ Returns conversions with linked expenses in `data`, plus `summary.conversion_cou
 
 **Access:** Staff. Consultants cannot view reports.
 
-| Query | Options / default |
-| --- | --- |
-| `group_by` | `country` (default), `consultant`, or `company`. |
-| `period` | `month` (default), `quarter`, or `year`. |
-| `consultant_id` | Optional UUID; filters expense, revenue, and enabled salary inputs. |
-| `month` | Optional `YYYY-MM`; monthly period only, cannot combine with year/quarter. |
-| `year` | Optional integer, 1900–9998. |
-| `quarter` | Optional 1–4; requires year and `period=quarter`. |
+| Query           | Options / default                                                          |
+| --------------- | -------------------------------------------------------------------------- |
+| `group_by`      | `country` (default), `consultant`, or `company`.                           |
+| `period`        | `month` (default), `quarter`, or `year`.                                   |
+| `consultant_id` | Optional UUID; filters expense, revenue, and enabled salary inputs.        |
+| `month`         | Optional `YYYY-MM`; monthly period only, cannot combine with year/quarter. |
+| `year`          | Optional integer, 1900–9998.                                               |
+| `quarter`       | Optional 1–4; requires year and `period=quarter`.                          |
 
 Examples:
 
@@ -452,19 +452,19 @@ Without date filters, includes available history; salary accrual stops at today'
 
 The response includes `data` plus `currency`, `month`, `group_by`, `period`, `consultant_id`, `salary_included`, and `salary_issues`. Rows include identity, period, currency, and:
 
-| Field | Meaning |
-| --- | --- |
-| `operating_costs` | Valued operating expenses, excluding marked payroll. |
-| `salary_costs` | Accrued base salary when company reporting is enabled. |
-| `costs` | Operating costs plus salary costs. |
-| `revenue` | Placement revenue valued on recognition dates. |
-| `profit` | Revenue minus costs; null if required inputs are incomplete. |
-| `roi_percent` | Profit / costs × 100; null if incomplete or costs are zero. |
-| `cost_per_placement` | Costs / placement count; requires complete cost inputs and at least one placement. |
-| `placement_count`, `expense_count` | Included placement and operating-expense counts. |
-| `complete` | Whether required ownership, salary, revenue, and rate inputs are available. |
-| `missing_salary_count`, `missing_revenue_count` | Missing salary segments or incomplete revenue records. |
-| `missing_cost_rate_count`, `missing_revenue_rate_count` | Inputs missing acceptable valuation rates. |
+| Field                                                   | Meaning                                                                            |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `operating_costs`                                       | Valued operating expenses, excluding marked payroll.                               |
+| `salary_costs`                                          | Accrued base salary when company reporting is enabled.                             |
+| `costs`                                                 | Operating costs plus salary costs.                                                 |
+| `revenue`                                               | Placement revenue valued on recognition dates.                                     |
+| `profit`                                                | Revenue minus costs; null if required inputs are incomplete.                       |
+| `roi_percent`                                           | Profit / costs × 100; null if incomplete or costs are zero.                        |
+| `cost_per_placement`                                    | Costs / placement count; requires complete cost inputs and at least one placement. |
+| `placement_count`, `expense_count`                      | Included placement and operating-expense counts.                                   |
+| `complete`                                              | Whether required ownership, salary, revenue, and rate inputs are available.        |
+| `missing_salary_count`, `missing_revenue_count`         | Missing salary segments or incomplete revenue records.                             |
+| `missing_cost_rate_count`, `missing_revenue_rate_count` | Inputs missing acceptable valuation rates.                                         |
 
 Company reporting adds salary history and uses home currency. Salary is annual / 12, prorated by employed calendar days per month, split across historical compensation/country assignments, and bounded by employment/report dates. Without company reporting, salary accrual is excluded and report currency is USD.
 
@@ -487,18 +487,18 @@ Most errors use this shape:
 
 `details` is optional. Responses also include `x-request-id` for tracing errors. Google's direct callback-validation error omits the body request ID; the header is still available.
 
-| Status | Common cause / next step |
-| --- | --- |
-| `400` | Invalid fields, UUID, dates, filters, or callback origin; check validation details. |
-| `401` | Missing/expired token or incorrect credentials; sign in or refresh the Supabase session. |
-| `403` | Insufficient role, inactive/unassigned profile, denied company access, or blocked browser origin. |
-| `404` | Unknown route or record unavailable to the caller. |
-| `409` | Duplicate data, finalized immutable records/source fields, or disabled feature. |
-| `413` | CSV/JSON body exceeds the applicable limit. |
-| `415` | Import content type is neither CSV nor JSON. |
-| `422` | No country assignment covers the expense date. |
-| `500` | Internal/database failure; use the request ID to inspect server logs. |
-| `503` | Authentication not configured, OAuth setup failure, or failed readiness check. |
+| Status | Common cause / next step                                                                          |
+| ------ | ------------------------------------------------------------------------------------------------- |
+| `400`  | Invalid fields, UUID, dates, filters, or callback origin; check validation details.               |
+| `401`  | Missing/expired token or incorrect credentials; sign in or refresh the Supabase session.          |
+| `403`  | Insufficient role, inactive/unassigned profile, denied company access, or blocked browser origin. |
+| `404`  | Unknown route or record unavailable to the caller.                                                |
+| `409`  | Duplicate data, finalized immutable records/source fields, or disabled feature.                   |
+| `413`  | CSV/JSON body exceeds the applicable limit.                                                       |
+| `415`  | Import content type is neither CSV nor JSON.                                                      |
+| `422`  | No country assignment covers the expense date.                                                    |
+| `500`  | Internal/database failure; use the request ID to inspect server logs.                             |
+| `503`  | Authentication not configured, OAuth setup failure, or failed readiness check.                    |
 
 Expense and placement deletion is restricted to administrators and Finance within their own company. Viewers and consultants cannot delete records. Deletion cannot be undone; the frontend asks for confirmation. Subsequent reports reflect deleted records. Finalized conversion source fields remain locked against edits, but deleting the parent expense also deletes its conversions atomically.
 
@@ -510,15 +510,15 @@ Run the existing backend suite with `npm test` (or `npm.cmd test` if PowerShell 
 
 [railway.json](railway.json) starts the API with `npm start` and checks `/api/v1/health`. Configure credentials/feature flags through Railway variables and allow the frontend origin through CORS. Uploading source does not apply database SQL or enable flags automatically.
 
-Deletion requires the policies and conversion cascade defined in [Expense and placement deletion SQL](database/expense-placement-deletion.sql), already applied to the current Supabase database.
+Deletion requires the policies and conversion cascade defined in [Expense and placement deletion SQL](database/enable-deletion.sql), already applied to the current Supabase database.
 
 Further details:
 
 - [Architecture and reporting rules](docs/ARCHITECTURE.md)
 - [Consultant access and invitation rollout](docs/CONSULTANT_ACCESS.md)
-- [Company/salary schema SQL](docs/database-proposals/company-salary-reporting.sql)
-- [Company isolation verification](docs/database-proposals/verify-company-isolation.sql)
-- [Invitation schema SQL](docs/database-proposals/consultant-invitations.sql)
-- [Invitation verification](docs/database-proposals/verify-consultant-invitations.sql)
+- [Company/salary schema SQL](docs/database-proposals/company-setup.sql)
+- [Company isolation verification](docs/database-proposals/test-company-access.sql)
+- [Invitation schema SQL](docs/database-proposals/consultant-invites.sql)
+- [Invitation verification](docs/database-proposals/test-consultant-access.sql)
 
 Review prerequisites before applying SQL to another database. These files do not replace the removed full migration history.

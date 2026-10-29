@@ -16,7 +16,7 @@ The approved data assigns `test1@mail` to Juice (C-1002) and `test2@mail` to Sig
 
 The frontend build and 53 backend tests pass. After explicit approval, the database change was applied as 20261025184809_consultant_email_invitations_and_own_expenses. Rollback-only invitation and isolation checks passed. The local backend has CONSULTANT_INVITATIONS_ENABLED=true. Authenticated local HTTP checks passed for both test users: their own expenses are readable, while report access and expense writes return 403. Railway still requires the updated backend deployment and invitation setting.
 
-The applied SQL is recorded in `database-proposals/consultant-invitations.sql`. The verification script is `database-proposals/verify-consultant-invitations.sql`; its synthetic users and assertions are rolled back. Checks cover invited acceptance, uninvited denial, read/write restrictions and access revocation.
+The applied SQL is recorded in `database-proposals/consultant-invites.sql`. The verification script is `database-proposals/test-consultant-access.sql`; its synthetic users and assertions are rolled back. Checks cover invited acceptance, uninvited denial, read/write restrictions and access revocation.
 
 Deploy the companion backend with `COMPANY_REPORTING_ENABLED=true` and `CONSULTANT_INVITATIONS_ENABLED=true` only after the database checks pass. The frontend discovers invitation support through `/auth/config` and otherwise retains the existing signup workflow. The optional capability probe never signs users out when an older backend lacks the endpoint.
 
