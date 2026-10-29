@@ -15,7 +15,7 @@ Splitflow manages consultants, expenses, placement revenue, currency conversions
 | Local       | `http://localhost:3000/api/v1`                           |
 | Railway     | `https://splitflow-api-production.up.railway.app/api/v1` |
 
-All paths below are relative to the base URL. For example, `/expenses` locally means `http://localhost:3000/api/v1/expenses`. This reference describes the current source; deployments may run an earlier version or have different features enabled.
+Except for the full paths shown in the Health section, endpoint paths below are relative to the base URL. For example, `/expenses` locally means `http://localhost:3000/api/v1/expenses`. This reference describes the current source; deployments may run an earlier version or have different features enabled.
 
 ### Run locally
 
@@ -97,10 +97,12 @@ The consultant's own identity lookup is a special one-record response. Histories
 
 ## Health
 
+These are full paths from the server origin. For example: `http://localhost:3000/api/v1/health` or `https://splitflow-api-production.up.railway.app/api/v1/health`.
+
 | Endpoint      | Access | Result                                                                                  |
 | ------------- | ------ | --------------------------------------------------------------------------------------- |
-| `GET /health` | Public | Process health: `200` with `{ "status": "ok" }`.                                        |
-| `GET /ready`  | Public | Database configuration/reachability: `200` if ready, `503` if unconfigured/unavailable. |
+| `GET /api/v1/health` | Public | Process health: `200` with `{ "status": "ok" }`.                                        |
+| `GET /api/v1/ready`  | Public | Database configuration/reachability: `200` if ready, `503` if unconfigured/unavailable. |
 
 Readiness can return:
 
