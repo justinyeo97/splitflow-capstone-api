@@ -273,6 +273,7 @@ An administrator can invite a consultant with `"email": "consultant@example.com"
 | `GET /expenses/:id` | Staff; consultant can read only own expense | One expense with conversions. Unavailable/not-visible records can return `404`. |
 | `POST /expenses` | Editors | Save an expense and attempt regional conversion. Returns `201` with `data` and a separate `conversion` summary. |
 | `PATCH /expenses/:id` | Editors | Update a subset of create fields and attempt conversion. Returns `data` and `conversion`. |
+| `DELETE /expenses/:id` | Editors | Permanently delete an expense and its conversions, including finalized conversions. Returns `204` with no body; missing or inaccessible records return `404`. |
 
 Create example:
 
@@ -383,6 +384,7 @@ Example `201` response:
 | `GET /placements` | Staff | Paginated list, including revenue amount as text, currency, and recognition date. |
 | `POST /placements` | Editors | Create a placement; returns the saved record (`201`). |
 | `PATCH /placements/:id` | Editors | Update using the **full required create body**, not a partial body; returns the updated record. |
+| `DELETE /placements/:id` | Editors | Permanently delete a placement and remove its revenue from subsequent reports. Returns `204` with no body; missing or inaccessible records return `404`. |
 
 Create/update example:
 
@@ -498,13 +500,17 @@ Most errors use this shape:
 | `500` | Internal/database failure; use the request ID to inspect server logs. |
 | `503` | Authentication not configured, OAuth setup failure, or failed readiness check. |
 
-There are no DELETE resource endpoints, role-management endpoints, or invitation-email sending endpoints.
+Expense and placement deletion is restricted to administrators and Finance within their own company. Viewers and consultants cannot delete records. Deletion cannot be undone; the frontend asks for confirmation. Subsequent reports reflect deleted records. Finalized conversion source fields remain locked against edits, but deleting the parent expense also deletes its conversions atomically.
+
+There are no role-management endpoints or invitation-email sending endpoints.
 
 ## Development and deployment
 
-Run the existing backend suite with `npm test` (or `npm.cmd test` if PowerShell blocks the npm wrapper). Tests cover authentication/access boundaries, invitations, company scoping, conversions, imports, exact money calculations, salary accrual, and reporting.
+Run the existing backend suite with `npm test` (or `npm.cmd test` if PowerShell blocks the npm wrapper). Tests cover authentication/access boundaries, invitations, company scoping, conversions, imports, expense/placement deletion, exact money calculations, salary accrual, and reporting.
 
 [railway.json](railway.json) starts the API with `npm start` and checks `/api/v1/health`. Configure credentials/feature flags through Railway variables and allow the frontend origin through CORS. Uploading source does not apply database SQL or enable flags automatically.
+
+Deletion requires the policies and conversion cascade defined in [Expense and placement deletion SQL](database/expense-placement-deletion.sql), already applied to the current Supabase database.
 
 Further details:
 
