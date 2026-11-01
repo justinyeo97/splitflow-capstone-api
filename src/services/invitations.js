@@ -5,7 +5,8 @@ export function restrictConsultant(req, _res, next) {
   if (!invitationsEnabled) return next();
   const onboarding = ["/auth/profile", "/auth/companies", "/auth/join-company"];
   if (req.user.role === "unassigned") {
-    if (onboarding.includes(req.path)) return next();
+    if (onboarding.includes(req.path) || req.path === "/auth/create-company")
+      return next();
   } else if (req.user.role === "consultant") {
     if (onboarding.includes(req.path)) return next();
     if (

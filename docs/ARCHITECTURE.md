@@ -77,7 +77,7 @@ Period ratios are calculated from period totals, not averaged monthly percentage
 
 The current conversion service runs during expense create/update and accepted CSV rows. It persists a pending conversion before external lookup, caches matching rates within an import, and leaves the expense saved when conversion fails. Pending cases support manual retry.
 
-Successful conversions still finalize immediately and lock source amount/currency/date/consultant under existing rules. A durable background worker, scheduled retries and a distinct approval lifecycle are **not implemented** by this change. Reports are provisional calculations and are not locked accounting snapshots. Home-currency changes can change historical report valuations.
+Successful conversions still finalize immediately and lock source amount/currency/date/consultant under existing rules. Scheduled retries now use durable database leases and a server-only worker; see the current README for activation. A distinct approval lifecycle is not implemented. Reports are provisional calculations and are not locked accounting snapshots. Home-currency changes can change historical report valuations.
 
 ## Rollout and verification
 

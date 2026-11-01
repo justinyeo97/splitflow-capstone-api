@@ -51,15 +51,13 @@ api.post("/auth/signup", async (req, res) => {
       : { ...credentials, options: { data: { company_name } } },
   );
   fail(error);
-  res
-    .status(201)
-    .json({
-      data: {
-        user: data.user,
-        session: data.session,
-        confirmation_required: !data.session,
-      },
-    });
+  res.status(201).json({
+    data: {
+      user: data.user,
+      session: data.session,
+      confirmation_required: !data.session,
+    },
+  });
 });
 api.post("/auth/login", async (req, res) => {
   requireAuthConfig();
@@ -96,14 +94,12 @@ api.get("/auth/google", async (req, res) => {
     redirectOrigin = null;
   }
   if (!redirectOrigin || !allowedOrigins.includes(redirectOrigin)) {
-    return res
-      .status(400)
-      .json({
-        error: {
-          code: "VALIDATION_ERROR",
-          message: "redirect_to must use an allowed application origin",
-        },
-      });
+    return res.status(400).json({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "redirect_to must use an allowed application origin",
+      },
+    });
   }
   const { data, error } = await authClient.auth.signInWithOAuth({
     provider: "google",
@@ -126,6 +122,33 @@ api.get("/auth/config", (_req, res) =>
 api.use(authenticate);
 api.use(restrictConsultant);
 // Ask the database which companies invited this person using their verified email.
+api.post("/auth/create-company", async (req, res) => {
+  if (!companyReportingEnabled || !invitationsEnabled) {
+    const error = new Error("Company onboarding is not enabled");
+    error.status = 409;
+    throw error;
+  }
+  if (req.user.role !== "unassigned") {
+    const error = new Error("Only users without a company can create one");
+    error.status = 403;
+    throw error;
+  }
+  const body = validate(
+    z
+      .object({
+        name: z.string().trim().min(1).max(200),
+        home_currency: currency.default("USD"),
+      })
+      .strict(),
+    req.body,
+  );
+  const { data, error } = await req.db.rpc("create_own_company", {
+    company_name: body.name,
+    home_currency: body.home_currency,
+  });
+  fail(error);
+  res.status(201).json({ data: { company_id: data } });
+});
 api.get("/auth/companies", async (req, res) => {
   if (!invitationsEnabled) {
     const e = new Error("Invitations are not activated");
@@ -576,19 +599,17 @@ api.post(
       fail(error);
       return res.status(202).json({ data });
     }
-    const { error: rateError } = await req.db
-      .from("exchange_rates")
-      .upsert(
-        {
-          provider: result.provider,
-          base_currency: expense.original_currency,
-          quote_currency: body.target_currency,
-          rate: result.rate,
-          effective_date: result.effectiveDate,
-          fallback_used: result.fallback,
-        },
-        { onConflict: "provider,base_currency,quote_currency,effective_date" },
-      );
+    const { error: rateError } = await req.db.from("exchange_rates").upsert(
+      {
+        provider: result.provider,
+        base_currency: expense.original_currency,
+        quote_currency: body.target_currency,
+        rate: result.rate,
+        effective_date: result.effectiveDate,
+        fallback_used: result.fallback,
+      },
+      { onConflict: "provider,base_currency,quote_currency,effective_date" },
+    );
     fail(rateError);
     const converted = multiplyAndRound(expense.original_amount, result.rate, 2);
     const row = {
@@ -661,19 +682,17 @@ api.post(
       fail(updateError);
       return res.status(202).json({ data });
     }
-    const { error: rateError } = await req.db
-      .from("exchange_rates")
-      .upsert(
-        {
-          provider: result.provider,
-          base_currency: expense.original_currency,
-          quote_currency: conversion.target_currency,
-          rate: result.rate,
-          effective_date: result.effectiveDate,
-          fallback_used: result.fallback,
-        },
-        { onConflict: "provider,base_currency,quote_currency,effective_date" },
-      );
+    const { error: rateError } = await req.db.from("exchange_rates").upsert(
+      {
+        provider: result.provider,
+        base_currency: expense.original_currency,
+        quote_currency: conversion.target_currency,
+        rate: result.rate,
+        effective_date: result.effectiveDate,
+        fallback_used: result.fallback,
+      },
+      { onConflict: "provider,base_currency,quote_currency,effective_date" },
+    );
     fail(rateError);
     const now = new Date().toISOString();
     const { data, error: updateError } = await req.db
@@ -872,21 +891,19 @@ api.post("/imports/expenses", allowRoles(...writeRoles), async (req, res) => {
     })
     .eq("id", batch.id);
   fail(updateError);
-  res
-    .status(201)
-    .json({
-      data: {
-        id: batch.id,
-        status: "completed",
-        accepted,
-        rejected,
-        duplicates,
-        conversions_finalized: conversionsFinalized,
-        conversions_pending: conversionsPending,
-        skipped: 0,
-        strategy: "partial acceptance; each row commits independently",
-      },
-    });
+  res.status(201).json({
+    data: {
+      id: batch.id,
+      status: "completed",
+      accepted,
+      rejected,
+      duplicates,
+      conversions_finalized: conversionsFinalized,
+      conversions_pending: conversionsPending,
+      skipped: 0,
+      strategy: "partial acceptance; each row commits independently",
+    },
+  });
 });
 api.get("/imports/:id", allowRoles(...readRoles), async (req, res) => {
   validate(uuid, req.params.id);
@@ -898,11 +915,18 @@ api.get("/imports/:id", allowRoles(...readRoles), async (req, res) => {
   fail(error);
   res.json({ data });
 });
-function sumAmounts(rows) {
-  return rows.reduce(
-    (sum, row) => sum + BigInt(String(row.converted_amount).replace(".", "")),
-    0n,
-  );
+async function allReportRows(db, table, columns) {
+  const rows = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await db
+      .from(table)
+      .select(columns)
+      .order("id")
+      .range(offset, offset + 499);
+    fail(error);
+    rows.push(...data);
+    if (data.length < 500) return rows;
+  }
 }
 function formatMinor(units) {
   const n = units < 0n ? -units : units;
@@ -912,12 +936,11 @@ api.get(
   "/reports/country-costs",
   allowRoles(...readRoles),
   async (req, res) => {
-    const { data, error } = await req.db
-      .from("expenses")
-      .select(
-        "id,attributed_country_id,transaction_date,countries(name,iso_code,default_reporting_currency),expense_conversions(target_currency,converted_amount,status)",
-      );
-    fail(error);
+    const data = await allReportRows(
+      req.db,
+      "expenses",
+      "id,attributed_country_id,transaction_date,countries(name,iso_code,default_reporting_currency),expense_conversions(target_currency,converted_amount,status)",
+    );
     const groups = new Map();
     for (const expense of data) {
       const currencyCode = expense.countries.default_reporting_currency;
@@ -976,12 +999,11 @@ api.get(
   "/reports/reconciliation",
   allowRoles("administrator", "finance"),
   async (req, res) => {
-    const { data, error } = await req.db
-      .from("expense_conversions")
-      .select(
-        "*,expenses(id,original_amount,original_currency,transaction_date,attributed_country_id)",
-      );
-    fail(error);
+    const data = await allReportRows(
+      req.db,
+      "expense_conversions",
+      "*,expenses(id,original_amount,original_currency,transaction_date,attributed_country_id)",
+    );
     const exceptions = data
       .filter((c) => c.status !== "finalized")
       .map((c) => ({
@@ -1060,6 +1082,24 @@ for (const [resource, table] of [
     },
   );
 }
+api.get(
+  "/audit-log",
+  allowRoles("administrator", "finance"),
+  async (req, res) => {
+    const { limit, offset } = validate(pageQuery, req.query);
+    const { data, error, count } = await req.db
+      .from("audit_logs")
+      .select(
+        "id,occurred_at,actor_id,actor_email,actor_kind,table_name,record_id,operation,before_data,after_data",
+        { count: "exact" },
+      )
+      .order("occurred_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(offset, offset + limit - 1);
+    fail(error);
+    res.json({ data, pagination: { limit, offset, total: count } });
+  },
+);
 api.get("/reports/roi", allowRoles(...readRoles), async (req, res) => {
   const filters = validate(
     z

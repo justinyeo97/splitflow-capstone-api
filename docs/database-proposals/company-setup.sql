@@ -15,7 +15,7 @@ create table public.company_memberships(
 do $$
 declare p record; cid uuid;
 begin
- if (select count(*) from public.profiles)<>1 then raise exception 'Existing data requires an explicit ownership mapping'; end if;
+ if (select count(*) from public.profiles)>1 then raise exception 'Existing data requires an explicit ownership mapping'; end if;
  for p in select * from public.profiles loop
  insert into public.companies(name) values(coalesce(nullif(btrim(p.company_name),''),'My company')) returning id into cid;
  update public.profiles set company_id=cid where id=p.id;

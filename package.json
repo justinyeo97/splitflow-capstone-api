@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "lint": "eslint .",
+    "retry:conversions": "node scripts/retry-conversions.js",
+    "db:rebuild": "node scripts/rebuild-database.js"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +24,10 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.14",
+    "@eslint/js": "10.0.1",
+    "eslint": "10.14.0",
+    "globals": "17.14.0",
     "nodemon": "^3.1.14"
   }
 }

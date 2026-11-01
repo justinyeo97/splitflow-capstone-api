@@ -19,7 +19,7 @@ Except for the full paths shown in the Health section, endpoint paths below are 
 
 ### Run locally
 
-Use Node.js 20 or newer. From the project root:
+Use Node.js 24 (also used by CI). From the project root:
 
 ```powershell
 npm install
@@ -32,9 +32,25 @@ Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in `.env`, then run:
 npm run dev
 ```
 
-Use `npm start` to run without automatic restarts. The entry point is `src/server.js`. Keep `.env` out of Git. This API uses a Supabase publishable key and the caller's token; it does not require a service-role key.
+Use `npm start` to run without automatic restarts. The entry point is `src/server.js`. Keep `.env` out of Git. Normal API requests use a Supabase publishable key and the caller's token. Only the optional background conversion worker requires a server-only service-role key.
 
-The database must already contain the required schema, triggers, functions, and access policies. Local migration files were removed after application, so this repository is not a complete fresh-database bootstrap. Do not expect `supabase db push` alone to recreate it. See [Architecture](docs/ARCHITECTURE.md) and [Consultant access](docs/CONSULTANT_ACCESS.md) for schema context.
+The SQL files are committed. For an empty Supabase database, install PostgreSQL `psql`, configure the standard `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` and `PGSSLMODE` connection variables, and run `npm run db:rebuild`. Keep credentials in your local environment or secret store. The script runs one transaction and refuses a non-empty application schema; it never drops existing data. It assumes Supabase Auth and its database roles already exist. Do not run the CI-only `database/test-bootstrap.sql` against Supabase.
+
+The single entry point is [database/rebuild.sql](database/rebuild.sql). Its execution order is:
+
+1. `supabase/migrations/20261018112136_create_tables.sql`
+2. `supabase/migrations/20261018112243_secure_tables.sql`
+3. `supabase/migrations/20261018112318_protect_role_helper.sql`
+4. `database/core-columns.sql` (automatic IDs, revenue, company-name and salary prerequisites)
+5. `docs/database-proposals/company-setup.sql` (supports empty or explicitly single-owner legacy data)
+6. Move the `btree_gist` extension to `extensions` when necessary (handled in `rebuild.sql`).
+7. `docs/database-proposals/consultant-invites.sql`
+8. `database/enable-deletion.sql`
+9. `database/audit-log.sql`
+10. `database/company-creation.sql`
+11. `database/scheduled-retries.sql`
+
+Do not additionally apply the duplicate invitation snapshot in `docs/applied-sql`. Verification scripts are tests, not installation steps. The historical temporary administrator-default change is intentionally excluded; verified founders receive company administrator membership through the company-creation function. `npm test` rebuilds an isolated PostgreSQL database and checks onboarding, policies, retry leases and delete auditing without production credentials.
 
 ### Configuration
 
@@ -93,14 +109,14 @@ Countries, consultants, expenses, and placements support `?limit=50&offset=0`. I
 }
 ```
 
-The consultant's own identity lookup is a special one-record response. Histories, import details, exceptions, and reports do not use this pagination envelope. ROI and consolidated reports fetch source rows in internal pages; country-cost, reconciliation, and exception queries can be subject to Supabase's response row limit.
+The consultant's own identity lookup is a special one-record response. Histories, import details, exceptions, and reports do not use this pagination envelope. ROI and consolidated reports fetch source rows in internal pages; country-cost and reconciliation reports also fetch internal pages. The exception lookup can still be subject to Supabase's response row limit.
 
 ## Health
 
 These are full paths from the server origin. For example: `http://localhost:3000/api/v1/health` or `https://splitflow-api-production.up.railway.app/api/v1/health`.
 
-| Endpoint      | Access | Result                                                                                  |
-| ------------- | ------ | --------------------------------------------------------------------------------------- |
+| Endpoint             | Access | Result                                                                                  |
+| -------------------- | ------ | --------------------------------------------------------------------------------------- |
 | `GET /api/v1/health` | Public | Process health: `200` with `{ "status": "ok" }`.                                        |
 | `GET /api/v1/ready`  | Public | Database configuration/reachability: `200` if ready, `503` if unconfigured/unavailable. |
 
@@ -330,7 +346,7 @@ Finalized conversions cannot be overwritten/retried (`409`). Records include sta
 
 Rates use the expense transaction date, with provider effective dates on or before it; weekends/holidays may use an earlier date. The provider chain tries Frankfurter, The Rates API, ECB, fxapi.app, then configured custom providers. Unavailable rates stay pending. Converted values round half away from zero to two decimals.
 
-Automatic conversion runs during writes/imports. There is no scheduled retry worker; use the retry endpoint.
+Automatic conversion runs during writes/imports. Pending conversions can be retried manually or by the optional scheduled worker described below.
 
 ## CSV imports
 
@@ -506,9 +522,35 @@ Expense and placement deletion is restricted to administrators and Finance withi
 
 There are no role-management endpoints or invitation-email sending endpoints.
 
+## New company onboarding
+
+`POST /auth/create-company` accepts `{ "name": "My agency", "home_currency": "MYR" }` and returns `201` with `data.company_id`. Only a signed-in, active, verified user without a company or membership may create one. The operation atomically creates the company, administrator membership and profile link. Company creation does not grant access to any existing company. Fetch `/auth/profile` after success. Company reporting and invitation support must be enabled.
+
+## Audit log
+
+`GET /audit-log?limit=25&offset=0` is available to administrators and Finance within their selected company. It returns the standard pagination envelope with timestamps, actor ID/email, user/system source, table, record ID, operation and before/after JSON. Database triggers capture future changes to company settings, memberships, countries, consultants, salary history, expenses, placements, conversions and imports, including cascaded conversion deletion. Normal application users cannot insert, edit or delete audit entries. Logging is not retroactive and records contain financial/personal data, so consultants and viewers cannot access them.
+
+## Scheduled conversion retries
+
+After applying `database/scheduled-retries.sql`, configure these **server-only** variables in Railway:
+
+```text
+SUPABASE_SERVICE_ROLE_KEY=<configure directly in Railway secrets>
+CONVERSION_RETRY_ENABLED=true
+CONVERSION_RETRY_INTERVAL_MS=900000
+```
+
+The API starts a retry pass shortly after startup and polls every 15 minutes by default. Ten due pending records are claimed per pass. Database leases prevent duplicate work across instances, recover after crashes, and never claim finalized records. Failures back off from five minutes to a maximum of one day. Scheduled changes appear as System in the audit log. If retries are disabled (the default), no worker credentials are needed.
+
+Alternatively run `npm run retry:conversions` from a Railway cron service using the same server variables and a 15-minute schedule; leave the API's internal scheduler disabled when using that option. Keep the Railway API running normally. Never put the service-role key in a `VITE_*` variable. Historical rate providers are contacted only when a due conversion is actually processed.
+
+## CSV report exports
+
+The frontend exports the current ROI result, country allocations and reconciliation as UTF-8 CSV, including all rows rather than only the visible UI page. ROI follows the selected filters and reporting currency. Null/incomplete financial values remain blank, with completeness and salary-issue information included. Text cells are escaped and protected against spreadsheet formulas. Country-allocation and reconciliation endpoints fetch all internal pages so exports are not silently capped by Supabase's response limit.
+
 ## Development and deployment
 
-Run the existing backend suite with `npm test` (or `npm.cmd test` if PowerShell blocks the npm wrapper). Tests cover authentication/access boundaries, invitations, company scoping, conversions, imports, expense/placement deletion, exact money calculations, salary accrual, and reporting.
+Run the existing backend suite with `npm test` (or `npm.cmd test` if PowerShell blocks the npm wrapper). The backend GitHub Actions workflow runs `npm ci`, `npm run lint`, and `npm test` on every push and pull request. Tests cover authentication/access boundaries, invitations, company scoping, conversions, imports, expense/placement deletion, exact money calculations, salary accrual, and reporting.
 
 [railway.json](railway.json) starts the API with `npm start` and checks `/api/v1/health`. Configure credentials/feature flags through Railway variables and allow the frontend origin through CORS. Uploading source does not apply database SQL or enable flags automatically.
 
@@ -523,4 +565,4 @@ Further details:
 - [Invitation schema SQL](docs/database-proposals/consultant-invites.sql)
 - [Invitation verification](docs/database-proposals/test-consultant-access.sql)
 
-Review prerequisites before applying SQL to another database. These files do not replace the removed full migration history.
+Use `database/rebuild.sql` for a fresh database in the documented order. Individual historical proposals are not independent bootstrap scripts.

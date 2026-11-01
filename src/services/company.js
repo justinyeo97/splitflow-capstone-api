@@ -10,6 +10,7 @@ const tenantTables = new Set([
   "expense_conversions",
   "import_batches",
   "import_row_errors",
+  "audit_logs",
 ]);
 
 // Explicit API scoping complements database RLS. Clients cannot supply ownership.

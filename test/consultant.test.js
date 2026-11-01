@@ -86,7 +86,7 @@ test("consultant creation and editing persist compensation fields", async () => 
 });
 
 test("consultant creation requires no external ID", () => {
-  const { external_id, ...withoutId } = body;
+  const { external_id: _external_id, ...withoutId } = body;
   assert.equal(consultantSchema.safeParse(withoutId).success, true);
   assert.equal(
     Object.hasOwn(consultantSchema.parse(body), "external_id"),
