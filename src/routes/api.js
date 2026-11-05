@@ -1254,7 +1254,7 @@ async function buildRoiReport(req) {
 
 api.get("/reports/roi", allowRoles(...readRoles), async (req, res) => {
   const report = await buildRoiReport(req);
-  res.json({ ...report, snapshot: reportFingerprint(report), analysis_available: Boolean(env.OPENAI_API_KEY) });
+  res.json({ ...report, snapshot: reportFingerprint(report), analysis_available: Boolean(env.GROQ_API_KEY) });
 });
 
 api.post("/reports/roi/analysis", allowRoles(...analysisRoles), async (req, res) => {

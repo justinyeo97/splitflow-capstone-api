@@ -14,10 +14,10 @@ const answer = { summary: "Revenue exceeds recorded costs.",
   investigations: [{ text: "Review whether revenue is sustainable.", evidence_ids: ["selected"] }],
   limitations: ["Recorded aggregates do not establish causation."] };
 const reply = (value = answer, extra = {}) => ({ ok: true, json: async () => ({
-  status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(value) }] }], ...extra,
+  choices: [{ finish_reason: "stop", message: { content: JSON.stringify(value) } }], ...extra,
 }) });
 const factory = (options = {}) => createRoiAnalyzer({ getKey: () => "test-secret",
-  getModel: () => "test-model", fetchImpl: async () => reply(), ...options });
+  getModel: () => "test-model", usageLimits: { minuteTokens: 1000000, dailyTokens: 10000000, dailyRequests: 1000, concurrent: 4 }, fetchImpl: async () => reply(), ...options });
 
 test("previous period handles year and quarter boundaries and unbounded reports", () => {
   assert.equal(previousFilters({ month: "2026-01" }).month, "2025-12");
@@ -55,11 +55,22 @@ test("analysis sends server key and strict output, reuses cache, scopes data and
   let calls = 0, clock = 0;
   const analyze = factory({ now: () => clock, fetchImpl: async (url, options) => {
     calls++;
-    assert.equal(url, "https://api.openai.com/v1/responses");
+    assert.equal(url, "https://api.groq.com/openai/v1/chat/completions");
     assert.equal(options.headers.Authorization, "Bearer test-secret");
     const body = JSON.parse(options.body);
-    assert.equal(body.store, false);
-    assert.equal(body.text.format.strict, true);
+    assert.equal(body.response_format.json_schema.strict, true);
+    const schema = body.response_format.json_schema.schema;
+    assert.equal(schema.properties.summary.pattern, "^[^0-9]+$");
+    assert.equal(schema.properties.observations.items.properties.text.pattern, "^[^0-9]+$");
+    assert.equal(schema.properties.investigations.items.properties.text.pattern, "^[^0-9]+$");
+    assert.equal(schema.properties.limitations.items.pattern, "^[^0-9]+$");
+    assert.equal(schema.properties.observations.items.properties.evidence_ids.items.pattern, undefined);
+    assert.equal(body.max_completion_tokens, 1800);
+    assert.equal(body.reasoning_effort, "low");
+    assert.equal(body.messages[0].role, "system");
+    assert.equal(body.messages[1].role, "user");
+    assert.ok(!("tools" in body));
+    assert.ok(!("input" in body));
     return reply();
   } });
   const facts = analysisFacts(report());
@@ -67,7 +78,7 @@ test("analysis sends server key and strict output, reuses cache, scopes data and
   assert.equal((await analyze("company:user", facts)).cached, true);
   await analyze("other-company:user", facts);
   await analyze("company:user", analysisFacts(report([row({ costs: "200.00" })])));
-  clock = 300001;
+  clock = 1800001;
   await analyze("company:user", facts);
   assert.equal(calls, 4);
 });
@@ -98,7 +109,7 @@ test("missing key, provider failures and invalid responses return safe errors", 
     (error) => error.code === "AI_UNAVAILABLE" && !error.message.includes("secret-provider-details"));
   for (const response of [reply({ ...answer, summary: "Profit rose 999%." }),
     reply({ ...answer, observations: [{ text: "Unsupported.", evidence_ids: ["invented"] }] }),
-    reply({}, { status: "incomplete" }), reply({}, { output: [{ type: "message", content: [{ type: "refusal" }] }] })]) {
+    reply({}, { choices: [{ finish_reason: "length", message: { content: "{}" } }] }), reply({}, { choices: [{ finish_reason: "stop", message: { refusal: "Refused" } }] })]) {
     await assert.rejects(() => factory({ fetchImpl: async () => response })("scope", analysisFacts(report())),
       (error) => error.code === "AI_INVALID_OUTPUT");
   }
@@ -117,18 +128,18 @@ test("analysis route enforces roles and returns setup errors without database or
   let denied;
   route("post").stack[0].handle({ user: { role: "consultant" } }, {}, (error) => { denied = error; });
   assert.equal(denied.status, 403);
-  const saved = env.OPENAI_API_KEY;
-  env.OPENAI_API_KEY = "";
+  const saved = env.GROQ_API_KEY;
+  env.GROQ_API_KEY = "";
   try {
     let status, body;
     await route("post").stack.at(-1).handle({}, { status(value) { status = value; return this; }, json(value) { body = value; } });
     assert.equal(status, 503);
     assert.equal(body.error.code, "AI_NOT_CONFIGURED");
-  } finally { env.OPENAI_API_KEY = saved; }
+  } finally { env.GROQ_API_KEY = saved; }
 });
 test("analysis route derives facts server-side, rejects stale snapshots and caches provider output", async () => {
-  const savedKey = env.OPENAI_API_KEY, savedFetch = globalThis.fetch;
-  env.OPENAI_API_KEY = "test-server-key";
+  const savedKey = env.GROQ_API_KEY, savedFetch = globalThis.fetch;
+  env.GROQ_API_KEY = "test-server-key";
   let providerCalls = 0;
   globalThis.fetch = async () => { providerCalls++; return reply(); };
   try {
@@ -152,8 +163,65 @@ test("analysis route derives facts server-side, rejects stale snapshots and cach
     req.body.totals = { revenue: "999999" };
     await assert.rejects(() => route("post").stack.at(-1).handle(req, response),
       (error) => error.code === "VALIDATION_ERROR");
-  } finally { env.OPENAI_API_KEY = savedKey; globalThis.fetch = savedFetch; }
+  } finally { env.GROQ_API_KEY = savedKey; globalThis.fetch = savedFetch; }
 });
 test("fingerprints change when report financial data changes", () => {
   assert.notEqual(reportFingerprint(report()), reportFingerprint(report([row({ costs: "200.00" })])));
+});
+
+test("free token budget is shared across users and cached results survive exhausted quotas", async () => {
+  let calls = 0, clock = 0;
+  const analyze = factory({ now: () => clock,
+    usageLimits: { minuteTokens: 6000, dailyTokens: 120000, dailyRequests: 40, concurrent: 1 },
+    fetchImpl: async () => { calls++; return reply(); } });
+  const facts = analysisFacts(report());
+  await analyze("one-user", facts);
+  // A second user cannot bypass the shared per-minute reservation.
+  await assert.rejects(() => analyze("two-user", facts), (error) => error.code === "AI_RATE_LIMITED");
+  assert.equal((await analyze("one-user", facts)).cached, true);
+  assert.equal(calls, 1);
+  clock = 60001;
+  await analyze("two-user", facts);
+  assert.equal(calls, 2);
+});
+test("daily attempt and token budgets reject requests until the UTC day changes", async () => {
+  for (const limits of [
+    { minuteTokens: 7000, dailyTokens: 120000, dailyRequests: 1, concurrent: 1 },
+    { minuteTokens: 7000, dailyTokens: 6000, dailyRequests: 40, concurrent: 1 },
+  ]) {
+    let clock = 0, calls = 0;
+    const analyze = factory({ now: () => clock, usageLimits: limits,
+      fetchImpl: async () => { calls++; return reply(); } });
+    await analyze("one", analysisFacts(report()));
+    clock = 60001;
+    await assert.rejects(() => analyze("two", analysisFacts(report())), (error) => error.code === "AI_DAILY_LIMIT");
+    assert.equal(calls, 1);
+    clock = 86400001;
+    await analyze("two", analysisFacts(report()));
+    assert.equal(calls, 2);
+  }
+});
+test("oversized inputs are stopped before a provider call", async () => {
+  let calls = 0;
+  const analyze = factory({ usageLimits: { minuteTokens: 7000, dailyTokens: 120000, dailyRequests: 40, concurrent: 1 },
+    fetchImpl: async () => { calls++; return reply(); } });
+  await assert.rejects(() => analyze("scope", { ...analysisFacts(report()), unexpected: "x".repeat(30000) }),
+    (error) => error.code === "AI_INPUT_TOO_LARGE");
+  assert.equal(calls, 0);
+});
+test("provider limits pause new generations without retries or paid fallback", async () => {
+  let clock = 0, calls = 0;
+  const analyze = factory({ now: () => clock, fetchImpl: async (url) => {
+    calls++;
+    assert.equal(url, "https://api.groq.com/openai/v1/chat/completions");
+    return { ok: false, status: 429, headers: new Headers({ "retry-after": "120" }) };
+  } });
+  const facts = analysisFacts(report());
+  await assert.rejects(() => analyze("one", facts), (error) => error.code === "AI_RATE_LIMITED");
+  clock = 60001;
+  await assert.rejects(() => analyze("two", facts), (error) => error.code === "AI_RATE_LIMITED");
+  assert.equal(calls, 1);
+  clock = 120001;
+  await assert.rejects(() => analyze("two", facts), (error) => error.code === "AI_RATE_LIMITED");
+  assert.equal(calls, 2);
 });
