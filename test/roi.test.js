@@ -202,3 +202,36 @@ test("quarterly and yearly ROI recompute ratios from aggregated money", async ()
   assert.equal(annual.revenue, "900.00");
   assert.equal(annual.roi_percent, "50.00");
 });
+
+test("FX lookups overlap, are bounded and deduplicate across report groups", async () => {
+  let active = 0, peak = 0, calls = 0;
+  const expenses = Array.from({ length: 18 }, (_, i) => expense("100", {
+    id: "e" + i, attributed_country_id: "country" + i,
+    original_currency: "MYR", transaction_date: "2026-10-" + String(i % 9 + 1).padStart(2, "0"),
+  }));
+  const rows = await calculateRoi(expenses, [], async () => {
+    calls++;
+    peak = Math.max(peak, ++active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active--;
+    return { rate: "0.25" };
+  });
+  assert.equal(calls, 9);
+  assert.equal(peak, 6);
+  assert.equal(rows.length, 18);
+  assert.ok(rows.every((row) => row.costs === "25.00" && row.complete));
+});
+
+test("FX preloading skips finalized, zero, payroll and incomplete revenue records", async () => {
+  const rows = await calculateRoi([
+    expense("100", { original_currency: "MYR", expense_conversions: [
+      { target_currency: "USD", status: "finalized", converted_amount: "25.00" },
+    ] }),
+    expense("0", { original_currency: "MYR" }),
+    expense("100", { original_currency: "MYR", is_payroll: true }),
+  ], [placement({ revenue_amount: null, revenue_currency: "MYR" })], async () => {
+    assert.fail("No FX request needed");
+  });
+  assert.equal(rows[0].costs, "25.00");
+  assert.equal(rows[0].complete, false);
+});

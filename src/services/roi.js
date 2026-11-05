@@ -85,6 +85,27 @@ export async function calculateRoi(
       p.revenue_recognition_date || p.placement_date,
       false,
     ).placements.push(p);
+  // Resolve only required FX pairs, once per request, with bounded concurrency.
+  // Finalized conversions, zero amounts and domestic amounts need no provider.
+  const requiredRates = new Map();
+  function requireRate(amount, from, date, conversions) {
+    if (decimal(String(amount)) === 0n || from.trim() === currency) return;
+    if (conversions?.some((c) =>
+      c.target_currency.trim() === currency && c.status === "finalized")) return;
+    const source = from.trim();
+    requiredRates.set(source + ":" + date, [source, currency, date]);
+  }
+  for (const g of groups.values()) {
+    for (const e of g.expenses)
+      requireRate(e.original_amount, e.original_currency, e.transaction_date, e.expense_conversions);
+    for (const p of g.placements)
+      if (p.revenue_amount != null && p.revenue_currency && p.revenue_recognition_date)
+        requireRate(p.revenue_amount, p.revenue_currency, p.revenue_recognition_date);
+  }
+  const pendingRates = requiredRates.values();
+  await Promise.all(Array.from({ length: Math.min(6, requiredRates.size) }, async () => {
+    for (const args of pendingRates) await cachedRate(...args);
+  }));
   const rows = [];
   for (const g of groups.values()) {
     const operating = await consolidateExpenses(
@@ -111,9 +132,10 @@ export async function calculateRoi(
         !p.revenue_currency ||
         !p.revenue_recognition_date,
     );
+    const missingRevenueSet = new Set(missingRevenue);
     const revenue = await consolidateExpenses(
       g.placements
-        .filter((p) => !missingRevenue.includes(p))
+        .filter((p) => !missingRevenueSet.has(p))
         .map((p) => ({
           id: p.id,
           original_amount: String(p.revenue_amount),

@@ -1,3 +1,4 @@
+import { analyzeRoi, analysisFacts, analysisRoles, previousFilters, reportFingerprint, requireAnalysisKey } from "../services/roi-analysis.js";
 import {
   invitationsEnabled,
   restrictConsultant,
@@ -20,7 +21,7 @@ import { consolidateExpenses } from "../services/consolidated.js";
 import { Router } from "express";
 import { z } from "zod";
 import { authClient } from "../lib/supabase.js";
-import { allowedOrigins } from "../config/env.js";
+import { allowedOrigins, env } from "../config/env.js";
 import { authenticate, allowRoles } from "../middleware/auth.js";
 import { validate, currency, date, uuid } from "../utils/validation.js";
 import { getHistoricalRate } from "../services/fx.js";
@@ -1100,7 +1101,7 @@ api.get(
     res.json({ data, pagination: { limit, offset, total: count } });
   },
 );
-api.get("/reports/roi", allowRoles(...readRoles), async (req, res) => {
+async function buildRoiReport(req) {
   const filters = validate(
     z
       .object({
@@ -1239,7 +1240,7 @@ api.get("/reports/roi", allowRoles(...readRoles), async (req, res) => {
       row.roi_percent = null;
       row.cost_per_placement = null;
     }
-  res.json({
+  return {
     data: rows,
     currency: reportCurrency,
     month: month || null,
@@ -1248,5 +1249,36 @@ api.get("/reports/roi", allowRoles(...readRoles), async (req, res) => {
     consultant_id: consultant_id || null,
     salary_included: companyReportingEnabled,
     salary_issues: salary.issues,
-  });
+  };
+}
+
+api.get("/reports/roi", allowRoles(...readRoles), async (req, res) => {
+  const report = await buildRoiReport(req);
+  res.json({ ...report, snapshot: reportFingerprint(report), analysis_available: Boolean(env.OPENAI_API_KEY) });
+});
+
+api.post("/reports/roi/analysis", allowRoles(...analysisRoles), async (req, res) => {
+  try {
+    requireAnalysisKey();
+    const body = validate(z.object({
+      filters: z.record(z.string(), z.union([z.string(), z.number()])),
+      snapshot: z.string().regex(/^[a-f0-9]{64}$/),
+    }).strict(), req.body);
+    // Reuse the same authenticated, scoped query as the ROI table; never accept client totals.
+    const report = await buildRoiReport({ ...req, query: body.filters });
+    if (reportFingerprint(report) !== body.snapshot)
+      return res.status(409).json({ error: { code: "ROI_CHANGED", message: "The ROI report has changed. Refresh ROI before analyzing it." } });
+    if (!report.data.length)
+      return res.status(422).json({ error: { code: "ROI_EMPTY", message: "There is no ROI data to analyze for these filters." } });
+    const previousQuery = previousFilters(body.filters);
+    const previous = previousQuery ? await buildRoiReport({ ...req, query: previousQuery }) : null;
+    const scope = [req.company?.id || "legacy", req.user.id, req.user.role].join(":");
+    const result = await analyzeRoi(scope, analysisFacts(report, previous));
+    res.json({ data: { ...result, snapshot: body.snapshot, currency: report.currency } });
+  } catch (error) {
+    // These messages are safe for users, including in production. Never forward provider bodies.
+    if (error.code?.startsWith("AI_"))
+      return res.status(error.status).json({ error: { code: error.code, message: error.message } });
+    throw error;
+  }
 });

@@ -23,9 +23,16 @@ export function salaryExpenses(
   const rows = [],
     issues = [];
   const last = end && end < next(asOf) ? end : next(asOf);
+  const payByConsultant = new Map(), countryByConsultant = new Map();
+  for (const [records, index] of [[histories, payByConsultant], [assignments, countryByConsultant]]) {
+    for (const record of records) {
+      if (!index.has(record.consultant_id)) index.set(record.consultant_id, []);
+      index.get(record.consultant_id).push(record);
+    }
+  }
   for (const person of consultants) {
-    const salaries = histories
-      .filter((h) => h.consultant_id === person.id)
+    const countries = countryByConsultant.get(person.id) || [];
+    const salaries = (payByConsultant.get(person.id) || [])
       .sort((a, b) => a.effective_from.localeCompare(b.effective_from));
     const employmentStart =
       person.employment_start_date || salaries[0]?.effective_from;
@@ -50,7 +57,7 @@ export function salaryExpenses(
         (h) =>
           h.effective_from <= day && (!h.effective_to || h.effective_to >= day),
       );
-      const assignment = assignments.find(
+      const assignment = countries.find(
         (h) =>
           h.consultant_id === person.id &&
           h.effective_from <= day &&

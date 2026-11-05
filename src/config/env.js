@@ -23,6 +23,8 @@ const schema = z.object({
     .string()
     .url()
     .default("https://api.frankfurter.dev/v1"),
+  OPENAI_API_KEY: z.string().trim().optional(),
+  OPENAI_ROI_MODEL: z.string().trim().min(1).default("gpt-5.4-mini"),
   FX_FALLBACK_URLS: z.string().default("[]"),
 });
 const parsed = schema.safeParse(process.env);
