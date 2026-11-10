@@ -2,6 +2,17 @@
 
 Splitflow manages consultants, expenses, placement revenue, currency conversions, and reports comparing revenue with operating and salary costs. This backend uses Express, Supabase Auth/Postgres, and Zod.
 
+## Current features
+
+- Company-scoped access, consultant invitations, company onboarding and audit logging.
+- Operating expenses, CSV imports, placement revenue and effective-dated salary/country histories.
+- Historical currency conversion, provider fallbacks and optional scheduled conversion retries.
+- Consultant, country and company ROI by month, quarter or year, including salary accrual when enabled.
+- Faster ROI valuation through deduplicated historical rate lookups with up to six concurrent requests. Existing finalized conversions, zero amounts and reporting-currency amounts skip external lookups.
+- Optional on-demand Groq explanations with verified supporting figures, anonymous consultant labels, response validation, caching and free-usage controls.
+
+The [React client](https://github.com/justinyeo97/splitflow-client) also provides persistent light/dark mode, green/red profit and ROI indicators, and comma-grouped supporting figures. Those are display features; API financial values remain unformatted decimal strings.
+
 ## Quick start
 
 1. Start the API or choose a deployed base URL.
@@ -65,6 +76,20 @@ Do not additionally apply the duplicate invitation snapshot in `docs/applied-sql
 | `CONSULTANT_INVITATIONS_ENABLED`   | Enable only after invitation schema/access checks pass, with company reporting enabled. Adds invited-company onboarding and restricted consultant accounts. Default disabled. |
 | `FRANKFURTER_BASE_URL`             | Primary historical rate service; default `https://api.frankfurter.dev/v1`.                                                                                                    |
 | `FX_FALLBACK_URLS`                 | Additional providers as a JSON array of `{ "name", "baseUrl" }` objects implementing the Frankfurter v1 historical response shape. Default `[]`.                              |
+
+Additional optional server configuration:
+
+| Variable | Purpose |
+| --- | --- |
+| `GROQ_API_KEY` | Server-only Groq key enabling AI ROI analysis. Without it, ROI calculations still work and `analysis_available` is false. |
+| `GROQ_ROI_MODEL` | Defaults to `openai/gpt-oss-20b`; this is the only model currently accepted by configuration. Requests go to Groq. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Required only for the optional scheduled conversion worker; never expose it to the client. |
+| `CONVERSION_RETRY_ENABLED` | Set to `true` to enable the internal retry scheduler after its SQL is installed; default disabled. |
+| `CONVERSION_RETRY_INTERVAL_MS` | Internal retry interval; defaults to `900000` milliseconds (15 minutes). |
+
+For local analysis, set `GROQ_API_KEY` in the API's ignored `.env` and restart the API. For the hosted website, configure it on the **Railway backend service** and deploy the variable changes. Local `.env` files are not pushed to GitHub and do not configure deployed services. The frontend must never receive this key in a `VITE_*` variable.
+
+Keep the Groq account on its Free plan to maintain the free-usage goal. The application limits requests but cannot verify account billing status. See [Groq setup and usage controls](docs/roi-analysis.md).
 
 ## API conventions and permissions
 
@@ -468,7 +493,7 @@ Examples:
 
 Without date filters, includes available history; salary accrual stops at today's date in the company reporting timezone. Company grouping still returns an array of period totals.
 
-The response includes `data` plus `currency`, `month`, `group_by`, `period`, `consultant_id`, `salary_included`, and `salary_issues`. Rows include identity, period, currency, and:
+The response includes `data` plus `currency`, `month`, `group_by`, `period`, `consultant_id`, `salary_included`, `salary_issues`, `snapshot`, and `analysis_available`. `snapshot` is a report fingerprint for analysis requests; `analysis_available` indicates whether this API detects a configured Groq key, not whether the provider currently has quota or is reachable. Rows include identity, period, currency, and:
 
 | Field                                                   | Meaning                                                                            |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -487,6 +512,73 @@ The response includes `data` plus `currency`, `month`, `group_by`, `period`, `co
 Company reporting adds salary history and uses home currency. Salary is annual / 12, prorated by employed calendar days per month, split across historical compensation/country assignments, and bounded by employment/report dates. Without company reporting, salary accrual is excluded and report currency is USD.
 
 Period ratios are computed from totals, not averages of monthly percentages. Check `complete` and `salary_issues`: totals can be partial. Report-level salary issues suppress profit, ROI, and cost per placement. Reports are calculated on request, not locked accounting snapshots.
+
+### `POST /reports/roi/analysis` - explain the selected ROI report
+
+**Access:** Staff (`administrator`, `finance`, `viewer`); consultants cannot generate analysis. Requires `GROQ_API_KEY` on the API server.
+
+First obtain the report with `GET /reports/roi`. Send the same filters and its returned `snapshot` in the JSON body. For example, after `GET /reports/roi?group_by=country&period=month&month=2026-10`:
+
+```json
+{
+  "filters": {
+    "group_by": "country",
+    "period": "month",
+    "month": "2026-10"
+  },
+  "snapshot": "<copy the 64-character snapshot returned by GET /reports/roi>"
+}
+```
+
+The snapshot placeholder above must be replaced with the actual hexadecimal fingerprint. `filters` accepts the ROI query fields described above. The route accepts only `filters` and `snapshot`; it does not accept client financial totals or arbitrary prompts.
+
+The API recomputes the report under the caller's existing company permissions and compares its fingerprint. A mismatch returns `409 ROI_CHANGED`; refresh the table before generating again. Explicit month, quarter or year selections can include preceding-period data. All-history reports do not invent a preceding period.
+
+Success returns `200` with the following fields under `data`:
+
+| Field | Meaning |
+| --- | --- |
+| `analysis.summary` | Qualitative overview of the selected results. |
+| `analysis.observations`, `analysis.investigations` | Arrays of `{ text, evidence_ids }` referencing supplied facts. |
+| `analysis.limitations` | Data and interpretation caveats. |
+| `facts` | Backend-calculated revenue, costs, profit, ROI, placements and completeness flags used for supporting figures. |
+| `coverage` | Total report rows, periods and entities, plus descriptions of the evidence samples. |
+| `generated_at`, `model`, `cached` | Generation timestamp, configured Groq model and whether a cached result was reused. |
+| `snapshot`, `currency` | The analyzed report fingerprint and reporting currency. |
+
+The service sends aggregates to Groq with consultant names and IDs removed and salary combined into total costs. It excludes raw expense records, emails and individual salary histories. Anonymous consultant aggregates can still represent one person's costs. All rows contribute to report totals, while detailed samples cover at most the twelve most recent periods and twelve entities by revenue.
+
+Responses are checked for completion status, schema, known evidence IDs and absence of numerical figures in prose. Exact figures come from the backend and are displayed separately. These checks do not guarantee that every interpretation is correct. Analysis runs separately from loading the ROI table and never changes recorded financial data.
+
+#### Analysis cache and free-usage controls
+
+| Control | Current implementation |
+| --- | --- |
+| Cache | Thirty minutes per company/user/role scope, model and aggregate-data fingerprint; matching in-flight requests share one generation. |
+| Concurrent calls | One generation per API process. |
+| Per-user attempts | Up to five new generations per minute per company/user/role scope, subject to the shared budgets below. |
+| Shared minute budget | 7,000 reserved estimated tokens per rolling minute; a single larger request is rejected before contacting Groq. |
+| Shared daily budgets | 120,000 reserved estimated tokens and at most 40 generation attempts per UTC day. |
+| Completion | At most 1,800 tokens, with low reasoning effort. |
+| Timeout / cooldown | Forty-five-second provider timeout; a provider quota error pauses new calls for at least a minute and respects longer `Retry-After` values, capped at a day. |
+
+Token reservations include a heuristic estimate of the prompt/schema/framing plus the maximum completion allowance. Failed attempts consume local reservations too. Groq enforces its actual organization-wide quota, which can be reached earlier. There are no automatic generation retries, alternate-model or paid-provider fallbacks. Cached results remain available when generation is limited.
+
+Cache and budget state is in memory: it resets on restart and is independent across API replicas. Keep the Groq account on its Free plan; local budgets alone are not a guarantee of zero charges on a paid account. See [the detailed setup guide](docs/roi-analysis.md).
+
+#### Analysis errors
+
+| Status / code | Next step |
+| --- | --- |
+| `409 ROI_CHANGED` | Refresh ROI and submit its new snapshot. |
+| `422 ROI_EMPTY` | Select filters that contain report data. |
+| `422 AI_INPUT_TOO_LARGE` | Narrow the period or consultant filter to fit the free analysis budget. |
+| `429 AI_RATE_LIMITED` | Wait for the local/provider limit or cooldown to reset. |
+| `429 AI_DAILY_LIMIT` | The local daily budget resets on the next UTC day. |
+| `503 AI_NOT_CONFIGURED` | Set the Groq key on the API instance serving this request, then restart/redeploy it. |
+| `503 AI_AUTH_FAILED` | Check the server's Groq key and model access. |
+| `502 AI_PROVIDER_ERROR` / `AI_INVALID_OUTPUT` | The provider request failed or its output failed validation; the table remains usable. |
+| `504 AI_UNAVAILABLE` | Groq could not be reached or the request timed out. |
 
 ## Errors and troubleshooting
 
@@ -511,12 +603,15 @@ Most errors use this shape:
 | `401`  | Missing/expired token or incorrect credentials; sign in or refresh the Supabase session.          |
 | `403`  | Insufficient role, inactive/unassigned profile, denied company access, or blocked browser origin. |
 | `404`  | Unknown route or record unavailable to the caller.                                                |
-| `409`  | Duplicate data, finalized immutable records/source fields, or disabled feature.                   |
+| `409` | Duplicate data, immutable records, disabled features, or an outdated ROI analysis snapshot. |
 | `413`  | CSV/JSON body exceeds the applicable limit.                                                       |
 | `415`  | Import content type is neither CSV nor JSON.                                                      |
-| `422`  | No country assignment covers the expense date.                                                    |
+| `422` | Missing country coverage, empty ROI data, or an analysis request exceeding its size budget. |
+| `429` | Local analysis budgets, provider limits or cooldown; wait before requesting again. |
 | `500`  | Internal/database failure; use the request ID to inspect server logs.                             |
-| `503`  | Authentication not configured, OAuth setup failure, or failed readiness check.                    |
+| `503` | Authentication/readiness failure or missing/rejected Groq configuration. |
+| `502` | Analysis provider failure or invalid generated output. |
+| `504` | Analysis provider connection failure or timeout. |
 
 Expense and placement deletion is restricted to administrators and Finance within their own company. Viewers and consultants cannot delete records. Deletion cannot be undone; the frontend asks for confirmation. Subsequent reports reflect deleted records. Finalized conversion source fields remain locked against edits, but deleting the parent expense also deletes its conversions atomically.
 
@@ -550,7 +645,7 @@ The frontend exports the current ROI result, country allocations and reconciliat
 
 ## Development and deployment
 
-Run the existing backend suite with `npm test` (or `npm.cmd test` if PowerShell blocks the npm wrapper). The backend GitHub Actions workflow runs `npm ci`, `npm run lint`, and `npm test` on every push and pull request. Tests cover authentication/access boundaries, invitations, company scoping, conversions, imports, expense/placement deletion, exact money calculations, salary accrual, and reporting.
+Run the existing backend suite with `npm test` (or `npm.cmd test` if PowerShell blocks the npm wrapper). The backend GitHub Actions workflow runs `npm ci`, `npm run lint`, and `npm test` on every push and pull request. Tests cover authentication/access boundaries, invitations, company scoping, conversions, imports, expense/placement deletion, exact money calculations, salary accrual, and reporting. AI tests use mocked Groq responses and cover response constraints, stale snapshots, cache reuse, request scoping, minute/daily budgets and provider-limit cooldowns. Live provider checks are separate and consume Groq quota; no live key is required for the automated suite.
 
 [railway.json](railway.json) starts the API with `npm start` and checks `/api/v1/health`. Configure credentials/feature flags through Railway variables and allow the frontend origin through CORS. Uploading source does not apply database SQL or enable flags automatically.
 
@@ -558,6 +653,7 @@ Deletion requires the policies and conversion cascade defined in [Expense and pl
 
 Further details:
 
+- [Groq ROI analysis setup and free-usage controls](docs/roi-analysis.md)
 - [Architecture and reporting rules](docs/ARCHITECTURE.md)
 - [Consultant access and invitation rollout](docs/CONSULTANT_ACCESS.md)
 - [Company/salary schema SQL](docs/database-proposals/company-setup.sql)

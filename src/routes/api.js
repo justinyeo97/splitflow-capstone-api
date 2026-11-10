@@ -65,12 +65,12 @@ api.post("/auth/login", async (req, res) => {
   const body = validate(
     invitationsEnabled
       ? authCredentials.extend({
-          email: z
-            .string()
-            .trim()
-            .max(254)
-            .regex(/^[^\s@]+@[^\s@]+$/),
-        })
+        email: z
+          .string()
+          .trim()
+          .max(254)
+          .regex(/^[^\s@]+@[^\s@]+$/),
+      })
       : authCredentials,
     req.body,
   );
@@ -190,11 +190,11 @@ api.get("/auth/profile", async (req, res) => {
       ...data,
       ...(invitationsEnabled
         ? {
-            role: req.user.role,
-            consultant_id: req.user.consultant_id || null,
-            consultant: req.consultant || null,
-            invitations_enabled: true,
-          }
+          role: req.user.role,
+          consultant_id: req.user.consultant_id || null,
+          consultant: req.consultant || null,
+          invitations_enabled: true,
+        }
         : {}),
       ...(req.company ? { role: req.user.role, company: req.company } : {}),
     },
@@ -334,20 +334,20 @@ api.patch("/countries/:id", allowRoles("administrator"), async (req, res) => {
 api.get("/consultants", allowRoles(...readRoles), (req, res) =>
   req.user?.role === "consultant"
     ? res.json({
-        data: [req.consultant],
-        pagination: { total: 1, limit: 100, offset: 0 },
-      })
+      data: [req.consultant],
+      pagination: { total: 1, limit: 100, offset: 0 },
+    })
     : list(
-        req,
-        res,
-        "consultants",
-        (invitationsEnabled ? "email," : "") +
-          "id,external_id,name,country_id,country_effective_from,active,created_at,updated_at,job_title,annual_salary::text,salary_currency,salary_effective_from," +
-          (companyReportingEnabled
-            ? "employment_start_date,employment_end_date,"
-            : "") +
-          "countries(name,iso_code)",
-      ),
+      req,
+      res,
+      "consultants",
+      (invitationsEnabled ? "email," : "") +
+      "id,external_id,name,country_id,country_effective_from,active,created_at,updated_at,job_title,annual_salary::text,salary_currency,salary_effective_from," +
+      (companyReportingEnabled
+        ? "employment_start_date,employment_end_date,"
+        : "") +
+      "countries(name,iso_code)",
+    ),
 );
 api.get(
   "/consultants/:id/country-history",
@@ -821,9 +821,9 @@ api.post("/imports/expenses", allowRoles(...writeRoles), async (req, res) => {
         description: row.description,
         ...(companyReportingEnabled && row.is_payroll
           ? {
-              is_payroll:
-                validate(z.enum(["true", "false"]), row.is_payroll) === "true",
-            }
+            is_payroll:
+              validate(z.enum(["true", "false"]), row.is_payroll) === "true",
+          }
           : {}),
       });
       const { data: attribution, error: ae } = await req.db
@@ -1168,14 +1168,14 @@ async function buildRoiReport(req) {
       if (start && table === "placements")
         query = query.or(
           "and(revenue_recognition_date.gte." +
-            start +
-            ",revenue_recognition_date.lt." +
-            end +
-            "),and(revenue_recognition_date.is.null,placement_date.gte." +
-            start +
-            ",placement_date.lt." +
-            end +
-            ")",
+          start +
+          ",revenue_recognition_date.lt." +
+          end +
+          "),and(revenue_recognition_date.is.null,placement_date.gte." +
+          start +
+          ",placement_date.lt." +
+          end +
+          ")",
         );
       else if (start && dateColumn)
         query = query.gte(dateColumn, start).lt(dateColumn, end);
@@ -1190,7 +1190,7 @@ async function buildRoiReport(req) {
     allRows(
       "expenses",
       (companyReportingEnabled ? "is_payroll," : "") +
-        "id,consultant_id,consultants(name),attributed_country_id,original_amount::text,original_currency,transaction_date,countries(name),expense_conversions(target_currency,converted_amount::text,status)",
+      "id,consultant_id,consultants(name),attributed_country_id,original_amount::text,original_currency,transaction_date,countries(name),expense_conversions(target_currency,converted_amount::text,status)",
       "transaction_date",
     ),
     allRows(
